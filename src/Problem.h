@@ -18,16 +18,18 @@ using std::unordered_map;
 class Problem {
  public:
   void add_clause(const vector<int>& org_clause);
+  void print(std::ostream& out=std::cout) const;
   void sanity_check() const;
  public:
   vector<vector<int>> clauses;
-  vector<bool> can_be_removed;
+  bool subsume(const size_t i, const size_t j);
+  vector<size_t> subsumed_by;
   vector<vector<size_t>> variable_to_clause_index;
   Knowledge global_knowledge;
   unordered_map<vector<int>, size_t> clause_to_index;
   unordered_map<vector<size_t>, vector<size_t>> variable_set_to_clause_indices;
   void update_variables(const unordered_set<size_t>& variables);
-  void print(std::ostream& out=std::cout) const;
+  size_t direct_add_clause(const vector<int>& clause, const vector<size_t>& key);
 };
 
 

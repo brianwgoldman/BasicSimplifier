@@ -67,7 +67,7 @@ int main(int argc, char * argv[]) {
   size_t real_variables = 0;
   for (const auto bin : problem.variable_to_clause_index) {
     for (const auto i : bin) {
-      if (not problem.can_be_removed[i]) {
+      if (problem.subsumed_by[i] >= problem.clauses.size()) {
         real_variables++;
         break;
       }
