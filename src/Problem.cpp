@@ -9,7 +9,7 @@
 
 using std::cout;
 using std::endl;
-
+using std::swap;
 
 void print(const vector<int>& clause, std::ostream& out) {
   for (const auto l : clause) {
@@ -31,20 +31,19 @@ size_t number_of_signs_different(const vector<int>& first, const vector<int>& se
   return result;
 }
 
+vector<size_t> Problem::create_key(const vector<int>& clause) const {
+  // Assumes the clause is already sorted
+  vector<size_t> clause_key;
+  for (const auto l : clause) {
+    clause_key.push_back(abs(l));
+  }
+  return clause_key;
+}
 
 void Problem::add_clause(const vector<int>& org_clause) {
   auto clause = global_knowledge.simplify(org_clause, global_knowledge.is_unsat);
   if (clause.size() == 0) {
-    if (global_knowledge.is_unsat) {
-      //print(global_knowledge.assigned);
-
-      cout << "UNSAT!" << endl;
-      ::print(org_clause);
-      global_knowledge.is_unsat = false;
-      global_knowledge.print();
-      // TODO Handle this better
-      assert(false);
-    }
+    // Don't do anything with empty clauses.
     return;
   }
   // lowest to highest by variable
@@ -55,10 +54,7 @@ void Problem::add_clause(const vector<int>& org_clause) {
   if (clause_to_index.count(clause)) {
     return;
   }
-  vector<size_t> clause_key;
-  for (const auto l : clause) {
-    clause_key.push_back(abs(l));
-  }
+  auto clause_key = create_key(clause);
   // at this point the clause is assured to be added, so just add it
   size_t position = direct_add_clause(clause, clause_key);
   if (clause.size() == 1) {
@@ -112,16 +108,17 @@ size_t Problem::direct_add_clause(const vector<int>& clause, const vector<size_t
   size_t position = clauses.size();
   // If you got this far it means the clause should be kept, at least for now
   subsumed_by.push_back(-1);
+  subsumes.emplace_back();
   clause_to_index[clause] = position;
   clauses.push_back(clause);
-  variable_set_to_clause_indices[key].push_back(position);
+  variable_set_to_clause_indices[key].insert(position);
 
   for (const auto l : clause) {
     size_t variable = abs(l);
     if (variable >= variable_to_clause_index.size()) {
       variable_to_clause_index.resize(variable + 1);
     }
-    variable_to_clause_index[variable].push_back(position);
+    variable_to_clause_index[variable].insert(position);
   }
   return position;
 }
@@ -150,9 +147,60 @@ void Problem::update_variables(const unordered_set<size_t>& variables) {
 bool Problem::subsume(const size_t i, const size_t j) {
   if (subsumed_by[i] > j) {
     subsumed_by[i] = j;
+    subsumes[j].push_back(i);
     return true;
   }
   return false;
+}
+
+void Problem::create_backup() {
+  backups.emplace_back();
+  backups.back().clause_size = clauses.size();
+  swap(backups.back().known, global_knowledge);
+}
+
+void Problem::revert_to_backup() {
+  if (backups.size() == 0) {
+    cout << "Attempted to revert to backup when no backup exists" << endl;
+    assert(false);
+  }
+  const size_t old_size = backups.back().clause_size;
+  for (size_t i= old_size; i < clauses.size(); i++) {
+    // Reset subsumes_by clauses
+    for (const auto j : subsumes[i]) {
+      assert(subsumed_by[j] == i);
+      subsumed_by[j] = -1;
+    }
+    // Remove clauses from variable_to_clause_index
+    for (const auto l : clauses[i]) {
+      size_t variable = abs(l);
+      size_t removed = variable_to_clause_index[variable].erase(i);
+      assert(removed == 1);
+    }
+    auto key = create_key(clauses[i]);
+    // Remove clause from variable_set_to_clause_indices
+    auto it = variable_set_to_clause_indices.find(key);
+    size_t removed = it->second.erase(i);
+    if (it->second.empty()) {
+      variable_set_to_clause_indices.erase(it);
+    }
+    assert(removed == 1);
+    // Remove clause from clause_to_index
+    removed = clause_to_index.erase(clauses[i]);
+    assert(removed == 1);
+  }
+  subsumed_by.resize(old_size);
+  subsumes.resize(old_size);
+  clauses.resize(old_size);
+
+  // Revert the knowledge and clear the backup
+  swap(backups.back().known, global_knowledge);
+  backups.pop_back();
+
+}
+
+void Problem::assume_and_learn(size_t variable) {
+
 }
 
 void Problem::print(std::ostream& out) const {
@@ -179,6 +227,7 @@ void Problem::print(std::ostream& out) const {
 void Problem::sanity_check() const {
   assert(clauses.size() == subsumed_by.size());
   assert(clauses.size() == clause_to_index.size());
+  assert(clauses.size() == subsumes.size());
   assert(variable_set_to_clause_indices.size() <= clauses.size());
   for (const auto pair : clause_to_index) {
     assert(pair.first == clauses[pair.second]);
