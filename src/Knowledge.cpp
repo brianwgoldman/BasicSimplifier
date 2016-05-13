@@ -227,6 +227,9 @@ vector<int> Knowledge::simplify(vector<int> clause, bool& unsat) const {
       }
     }
   }
+  if (clause.size() == 0) {
+    unsat = true;
+  }
   return clause;
 }
 
