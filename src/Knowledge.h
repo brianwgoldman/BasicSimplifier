@@ -39,6 +39,7 @@ class Knowledge {
     return (not is_sat) and (not is_unsat) and assigned.empty() and rewrites.empty();
   }
   void print(std::ostream& out=std::cout) const;
+  void print_short(std::ostream& out=std::cout) const;
   vector<int> simplify(vector<int> clause, bool& unsat) const;
  private:
   // Used to quickly update rewrites when new knowledge is added

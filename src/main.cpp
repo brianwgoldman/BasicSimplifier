@@ -15,6 +15,10 @@ using std::pair;
 #include <unordered_set>
 using std::unordered_set;
 
+
+#include <chrono>
+
+
 #include "Problem.h"
 
 vector<vector<int>> read_dimacs(const string filename) {
@@ -50,70 +54,66 @@ vector<vector<int>> read_dimacs(const string filename) {
 }
 
 int main(int argc, char * argv[]) {
-  if (argc < 2) {
-    cout << "Requires an input file" << endl;
+  if (argc < 3) {
+    cout << "Requires an input file and output file" << endl;
     return 1;
   }
   auto clauses = read_dimacs(argv[1]);
   cout << "Load complete" << endl;
+  auto start_time = std::chrono::steady_clock::now();
+  double duration = 0;
   Problem problem;
   for (const auto& clause : clauses) {
     problem.add_clause(clause);
   }
   cout << "Clauses added: " << problem.clauses.size() << endl;
-  problem.global_knowledge.print();
-  problem.sanity_check();
-  cout << problem.global_knowledge.assigned.size() << " " << problem.global_knowledge.rewrites.size() << endl;
-  size_t real_variables = 0;
-  for (const auto bin : problem.variable_to_clause_index) {
-    for (const auto i : bin) {
+  problem.global_knowledge.print_short();
+  const size_t total_variables = problem.variable_to_clause_index.size();
+
+  unordered_map<size_t, size_t> frequency;
+  for (size_t v=1; v < total_variables; v++) {
+    int positive=0, negative=0;
+    for (const auto i : problem.variable_to_clause_index[v]) {
       if (problem.subsumed_by[i] >= problem.clauses.size()) {
-        real_variables++;
-        break;
+        for (const auto l : problem.clauses[i]) {
+          size_t var = abs(l);
+          if (var == v) {
+            if (l > 0) {
+              positive++;
+            } else {
+              negative++;
+            }
+          }
+        }
       }
     }
+    frequency[v] = abs(positive-negative);
   }
-  cout << "Real Variables: " << real_variables << endl;
-  /*
-  unordered_set<size_t> has_true, has_false;;
-  for (size_t i=0; i < problem.clauses.size(); i++) {
-    if (problem.can_be_removed[i]) {
-      continue;
+  vector<vector<size_t>> bins;
+  for (size_t v=1; v < total_variables; v++) {
+    auto count = frequency[v];
+    if (count >= bins.size()) {
+      bins.resize(count + 1);
     }
-    for (const auto l : problem.clauses[i]) {
-      if (l > 0) {
-        has_true.insert(abs(l));
-      } else {
-        has_false.insert(abs(l));
-      }
-    }
+    bins[count].push_back(v);
   }
-  for (const auto v : has_true) {
-    if (has_false.count(v) == 0) {
-      cout << v << " is never false, but sometimes true" << endl;
+  while (bins.size() > 0) {
+    size_t variable = bins.back().back();
+    bins.back().pop_back();
+    while (bins.size() > 0 and bins.back().size() == 0) {
+      bins.pop_back();
     }
-  }
-  for (const auto v : has_false) {
-    if (has_true.count(v) == 0) {
-      cout << v << " is never true, but sometimes false" << endl;
+    if (duration > 60) {
+      cout << "Took too long" << endl;
+      break;
     }
+    problem.global_knowledge.print_short();
+    problem.assume_and_learn(variable);
+    duration = std::chrono::duration<double>(std::chrono::steady_clock::now() - start_time).count();
   }
-  */
-  ofstream output("tmp.cnf");
+  problem.sanity_check();
+  problem.global_knowledge.print_short();
+  assert(problem.backups.size() == 0);
+  ofstream output(argv[2]);
   problem.print(output);
-  /*
-  for (const auto c : problem.clauses) {
-    bool important = false;
-    for (const auto l : c) {
-      size_t variable = abs(l);
-      if (variable == 464 or variable == 393) {
-        important = true;
-      }
-    }
-    if (important and c.size() < 7) {
-      print(c);
-    }
-  }
-  //*/
-  //problem.print();
 }

@@ -40,7 +40,28 @@ vector<size_t> Problem::create_key(const vector<int>& clause) const {
   return clause_key;
 }
 
-void Problem::add_clause(const vector<int>& org_clause) {
+bool is_superset(const vector<int>& sub, const vector<int>& super) {
+  if (sub.size() > super.size()) {
+    return false;
+  }
+  size_t super_it = 0;
+  const size_t super_size = super.size();
+  for (const auto l : sub) {
+    auto variable = abs(l);
+    while (super_it < super_size and abs(super[super_it]) < variable) {
+      super_it++;
+    }
+    if (super_it >= super_size or l != super[super_it]) {
+      return false;
+    }
+  }
+  return true;
+}
+
+void Problem::add_clause(const vector<int>& org_clause, bool remove_subsets) {
+  if (global_knowledge.is_unsat) {
+    cout << "Add clause called while already unsat" << endl;
+  }
   auto clause = global_knowledge.simplify(org_clause, global_knowledge.is_unsat);
   if (clause.size() == 0) {
     // Don't do anything with empty clauses.
@@ -98,14 +119,26 @@ void Problem::add_clause(const vector<int>& org_clause) {
       }
     }
   }
+  if (remove_subsets) {
+    for (const auto i : variable_to_clause_index[abs(clause[0])]) {
+      if (i != position and subsumed_by[i] >= clauses.size()) {
+        if (is_superset(clause, clauses[i])) {
+          subsume(i, position);
+        }
+      }
+    }
+  }
   for (const auto to_add : created_clauses) {
+    if (global_knowledge.is_unsat) {
+      break;
+    }
     add_clause(to_add);
   }
 }
 
 size_t Problem::direct_add_clause(const vector<int>& clause, const vector<size_t>& key) {
   // Assumes its already sorted
-  size_t position = clauses.size();
+  const size_t position = clauses.size();
   // If you got this far it means the clause should be kept, at least for now
   subsumed_by.push_back(-1);
   subsumes.emplace_back();
@@ -138,7 +171,11 @@ void Problem::update_variables(const unordered_set<size_t>& variables) {
       // Ignore clauses that can be removed
       continue;
     }
-    subsumed_by[i] = clauses.size() - 1;
+    if (global_knowledge.is_unsat) {
+      return;
+
+    }
+    subsume(i, clauses.size() - 1);
     // Adding the clause again will show how it looks after knowledge is applied.
     add_clause(clauses[i]);
   }
@@ -175,6 +212,11 @@ void Problem::revert_to_backup() {
     for (const auto l : clauses[i]) {
       size_t variable = abs(l);
       size_t removed = variable_to_clause_index[variable].erase(i);
+      if (removed != 1) {
+        cout << "Removed: " << removed << " when removing " << i << " from " << variable << endl;
+        ::print(clauses[i]);
+        assert(false);
+      }
       assert(removed == 1);
     }
     auto key = create_key(clauses[i]);
@@ -200,7 +242,97 @@ void Problem::revert_to_backup() {
 }
 
 void Problem::assume_and_learn(size_t variable) {
+  // TODO Verify all of the knowledge based things get preserved
+  create_backup();
+  // First assume it positive
+  vector<int> fake(1, variable);
+  add_clause(fake);
+  if (global_knowledge.is_unsat) {
+    cout << "Contradiction learning" << endl;
+    revert_to_backup();
+    fake[0] = -fake[0];
+    add_clause(fake);
+    return;
+  }
+  // Build the set of the clauses created by this assumption
+  unordered_set<vector<int>> created;
+  vector<vector<int>> created_singles;
+  for (size_t i=backups.back().clause_size; i < clauses.size(); i++) {
+    created.insert(clauses[i]);
+    if (clauses[i].size() == 1) {
+      created_singles.push_back(clauses[i]);
+    }
+  }
+  // make the opposite assumption
+  revert_to_backup();
 
+  create_backup();
+  fake[0] = - fake[0];
+  add_clause(fake);
+  if (global_knowledge.is_unsat) {
+    cout << "Contradiction learning" << endl;
+    revert_to_backup();
+    fake[0] = -fake[0];
+    add_clause(fake);
+    return;
+  }
+
+  vector<vector<int>> second_singles;
+  vector<vector<int>> to_add;
+  for (size_t i=backups.back().clause_size; i < clauses.size(); i++) {
+    // If this clause was created going both directions
+    if (created.count(clauses[i])) {
+      to_add.push_back(clauses[i]);
+    }
+    if (clauses[i].size() == 1) {
+      second_singles.push_back(clauses[i]);
+    }
+  }
+  if (to_add.size() > 0) {
+    cout << "Created both ways" << endl;
+    for (const auto c : to_add) {
+      ::print(c);
+    }
+  }
+  revert_to_backup();
+  // TODO Consider handling single matching
+  /*
+  cout << " Doing " << created_singles.size() << "x" << second_singles.size() << endl;
+  for (const auto second : second_singles) {
+    // Pair of all singles
+    for (const auto& single : created_singles) {
+      if (abs(single[0]) != abs(second[0])) {
+        to_add.push_back({single[0], second[0]});
+        // Prevent memory issues
+        if(to_add.size() > clauses.size()) {
+          cout << "Cut off" << endl;
+          break;
+        }
+      }
+    }
+  }
+  //*/
+  /*
+  for (const auto single : created_singles) {
+    if (abs(single[0]) == abs(fake[0])) {
+      continue;
+    }
+    to_add.push_back({single[0], fake[0]});
+  }
+  for (const auto single : second_singles) {
+    if (abs(single[0]) == abs(fake[0])) {
+      continue;
+    }
+    to_add.push_back({single[0], -fake[0]});
+  }
+  //*/
+  for (const auto clause : to_add) {
+    add_clause(clause, true);
+  }
+  if (to_add.size() > 0) {
+    cout << "Added: " << to_add.size() << " clauses" << endl << endl << endl;
+    cout << clauses.size() << endl;
+  }
 }
 
 void Problem::print(std::ostream& out) const {
@@ -215,6 +347,8 @@ void Problem::print(std::ostream& out) const {
       }
     }
   }
+  out << "c Assigned: " << global_knowledge.assigned.size()
+      << " Rewritten: " << global_knowledge.rewrites.size() << endl;
   out << "p cnf " << max_variable << " " << real_clauses << endl;
   for (size_t i=0; i < clauses.size(); i++) {
     if (subsumed_by[i] < clauses.size()) {
@@ -222,6 +356,10 @@ void Problem::print(std::ostream& out) const {
     }
     ::print(clauses[i], out);
   }
+}
+
+bool Problem::is_removable(const size_t variable) const {
+  return false;
 }
 
 void Problem::sanity_check() const {

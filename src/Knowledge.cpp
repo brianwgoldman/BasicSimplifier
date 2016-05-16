@@ -179,6 +179,18 @@ void Knowledge::print(std::ostream& out) const {
   }
 }
 
+void Knowledge::print_short(std::ostream& out) const {
+  if (is_sat) {
+    out << "Proven SAT" << endl;
+    return;
+  }
+  if (is_unsat) {
+    out << "Proven UNSAT" << endl;
+    return;
+  }
+  out << "Assigned: " << assigned.size() << " Rewritten: " << rewrites.size() << endl;
+}
+
 void TwoConsistency::print(std::ostream& out) const {
   out << from;
   if (negated) {

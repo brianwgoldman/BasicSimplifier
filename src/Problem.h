@@ -23,13 +23,14 @@ class PreviousState {
 // TODO Actually clean up useless clauses
 class Problem {
  public:
-  void add_clause(const vector<int>& org_clause);
+  void add_clause(const vector<int>& org_clause, bool remove_subsets=false);
   void print(std::ostream& out=std::cout) const;
   void sanity_check() const;
   void assume_and_learn(size_t variable);
  public:
   vector<vector<int>> clauses;
   bool subsume(const size_t i, const size_t j);
+  bool is_removable(const size_t variable) const;
   vector<size_t> subsumed_by;
   vector<vector<size_t>> subsumes;
   vector<unordered_set<size_t>> variable_to_clause_index;
